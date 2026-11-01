@@ -75,17 +75,12 @@ class Command:
 
         return self.parse_rename_pairs_response(response)
 
-    def get_prompt(self, folder_list_str):
-        return f"""Here is a list of folder names:
-
-    {folder_list_str}
-
-    For each folder name, reformat it as '{{title}} v{{two-digit number}}' if it contains a version number, 
-    or just '{{title}}' if there is no volume number. Remove any other information such as author name.
-    Titles may have two parts, such as "First part - Second part".
-    Numbers may also be part of the title, if they are at the beginning or middle.
-    Return your answer as a JSON array of pairs [original_name, new_name]. Make sure all pairs are valid.
-    """
+    @staticmethod
+    def get_prompt(folder_list_str):
+        prompt_file_path = os.path.join(os.path.dirname(__file__), 'prompt.md')
+        with open(prompt_file_path, 'r', encoding='utf-8') as f:
+            prompt = f.read()
+        return prompt + "\n\n" + folder_list_str
 
     @staticmethod
     def parse_rename_pairs_response(response: str) -> list[tuple[str, str]]:
