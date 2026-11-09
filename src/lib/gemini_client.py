@@ -1,20 +1,33 @@
 import os
 import google.generativeai as genai
+from google.api_core.exceptions import NotFound
 
 from .ai_cache import AICache
 from .ai_client import AIClient
+
+DEFAULT_MODEL = "models/gemini-3.6-flash"
+
+
+def configure_gemini():
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY environment variable not found.")
+    genai.configure(api_key=api_key)
+
+
+def list_generation_models() -> list[str]:
+    return [m.name for m in genai.list_models()
+            if 'generateContent' in m.supported_generation_methods]
 
 
 class GeminiClient(AIClient):
     def __init__(self):
         self.cache = AICache()
         try:
-            api_key = os.environ.get("GEMINI_API_KEY")
-            if not api_key:
-                raise ValueError("GEMINI_API_KEY environment variable not found.")
-            genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel('gemini-1.5-flash-latest')
-            print("Gemini API configured successfully.")
+            configure_gemini()
+            model_name = os.environ.get("GEMINI_MODEL", DEFAULT_MODEL)
+            self.model = genai.GenerativeModel(model_name)
+            print(f"Gemini API configured successfully (model: {model_name}).")
         except Exception as e:
             print(f"Error configuring Gemini API: {e}")
             self.model = None
@@ -36,5 +49,8 @@ class GeminiClient(AIClient):
 
             self.cache.set(prompt, response_text)
             return response_text
+        except NotFound:
+            return (f"Gemini model '{self.model.model_name}' was not found. "
+                    f"Set GEMINI_MODEL to one of: {', '.join(list_generation_models())}")
         except Exception as e:
             return f"An error occurred while calling the Gemini API: {e}"
