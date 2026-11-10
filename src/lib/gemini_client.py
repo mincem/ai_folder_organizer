@@ -1,6 +1,6 @@
 import os
 from google import genai
-from google.genai import errors
+from google.genai import errors, types
 
 from .ai_cache import AICache
 from .ai_client import AIClient
@@ -31,7 +31,7 @@ class GeminiClient(AIClient):
             print(f"Error configuring Gemini API: {e}")
             self.client = None
 
-    def ask(self, prompt: str) -> str:
+    def ask(self, prompt: str, response_schema: dict = None) -> str:
         if not self.client:
             return "Cannot ask Gemini, the client was not initialized."
 
@@ -43,7 +43,11 @@ class GeminiClient(AIClient):
         print("\n--- Sending prompt to Gemini ---")
         print(f"Prompt: {prompt}")
         try:
-            response = self.client.models.generate_content(model=self.model_name, contents=prompt)
+            config = None
+            if response_schema:
+                config = types.GenerateContentConfig(response_mime_type="application/json",
+                                                     response_json_schema=response_schema)
+            response = self.client.models.generate_content(model=self.model_name, contents=prompt, config=config)
             response_text = response.text
 
             self.cache.set(prompt, response_text)

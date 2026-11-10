@@ -6,5 +6,5 @@ class AIService:
     def __init__(self, ai_client: AIClient = None):
         self.ai_client = ai_client or GeminiClient()
 
-    def ask(self, prompt: str) -> str:
-        return self.ai_client.ask(prompt)
+    def ask(self, prompt: str, response_schema: dict = None) -> str:
+        return self.ai_client.ask(prompt, response_schema)

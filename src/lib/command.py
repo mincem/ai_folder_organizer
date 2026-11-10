@@ -1,8 +1,24 @@
 import json
 import os
+import re
 
 from .ai_service import AIService
 from .logger import Logger
+
+RESPONSE_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "original": {"type": "string"},
+            "series": {"type": "string"},
+            "volume": {"type": ["integer", "null"]},
+            "title": {"type": ["string", "null"]},
+            "notes": {"type": ["string", "null"]},
+        },
+        "required": ["original", "series", "volume", "title", "notes"],
+    },
+}
 
 
 class Command:
@@ -67,13 +83,14 @@ class Command:
     def get_rename_pairs(self, folders: list[str]) -> list[tuple[str, str]]:
         prompt = self.get_prompt("\n".join(folders))
 
-        response = self.ai_service.ask(prompt)
+        response = self.ai_service.ask(prompt, RESPONSE_SCHEMA)
 
         print("\n--- AI Response ---")
         print(response)
         print("-------------------------\n")
 
-        return self.parse_rename_pairs_response(response)
+        entries = self.parse_entries_response(response)
+        return [(entry['original'], self.build_new_name(entry)) for entry in entries]
 
     @staticmethod
     def get_prompt(folder_list_str):
@@ -83,11 +100,22 @@ class Command:
         return prompt + "\n\n" + folder_list_str
 
     @staticmethod
-    def parse_rename_pairs_response(response: str) -> list[tuple[str, str]]:
-        json_start = response.find('[')
-        json_end = response.rfind(']') + 1
-        if json_start == -1 or json_end == 0:
-            raise ValueError("No JSON array found in the response")
-        json_str = response[json_start:json_end]
-        rename_pairs = json.loads(json_str)
-        return rename_pairs
+    def parse_entries_response(response: str) -> list[dict]:
+        return json.loads(response)
+
+    @staticmethod
+    def build_new_name(entry: dict) -> str:
+        name = Command.sanitize(entry['series'])
+        if entry.get('volume') is not None:
+            name += f" v{int(entry['volume']):02d}"
+        if entry.get('title'):
+            name += f" [{Command.sanitize(entry['title'])}]"
+        return name
+
+    @staticmethod
+    def sanitize(text: str) -> str:
+        # Windows doesn't allow these characters, nor names ending in a dot or space
+        text = text.replace(':', ' - ')
+        text = re.sub(r'[<>"/\\|?*]', '', text)
+        text = re.sub(r'\s+', ' ', text)
+        return text.strip(' .')
