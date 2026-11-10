@@ -3,7 +3,7 @@ from google import genai
 from google.genai import errors, types
 
 from .ai_cache import AICache
-from .ai_client import AIClient
+from .ai_client import AIClient, AIError
 
 DEFAULT_MODEL = "models/gemini-3.6-flash"
 
@@ -33,7 +33,7 @@ class GeminiClient(AIClient):
 
     def ask(self, prompt: str, response_schema: dict = None) -> str:
         if not self.client:
-            return "Cannot ask Gemini, the client was not initialized."
+            raise AIError("Cannot ask Gemini, the client was not initialized.")
 
         if prompt in self.cache:
             print("\n--- Using cached response ---")
@@ -54,8 +54,8 @@ class GeminiClient(AIClient):
             return response_text
         except errors.ClientError as e:
             if e.code != 404:
-                return f"An error occurred while calling the Gemini API: {e}"
-            return (f"Gemini model '{self.model_name}' was not found. "
-                    f"Set GEMINI_MODEL to one of: {', '.join(list_generation_models(self.client))}")
+                raise AIError(f"An error occurred while calling the Gemini API: {e}") from e
+            raise AIError(f"Gemini model '{self.model_name}' was not found. "
+                          f"Set GEMINI_MODEL to one of: {', '.join(list_generation_models(self.client))}") from e
         except Exception as e:
-            return f"An error occurred while calling the Gemini API: {e}"
+            raise AIError(f"An error occurred while calling the Gemini API: {e}") from e

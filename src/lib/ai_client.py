@@ -1,6 +1,10 @@
 from abc import ABC, abstractmethod
 
 
+class AIError(Exception):
+    pass
+
+
 class AIClient(ABC):
 
     @abstractmethod

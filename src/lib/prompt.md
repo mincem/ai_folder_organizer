@@ -24,6 +24,6 @@ Your final answer must be a JSON array with one object per folder name, in the s
 * `series`: the series title.
 * `volume`: the volume number as an integer, or `null` if there is none.
 * `title`: the folder title, or `null` if there is none.
-* `notes`: a short explanation, only when you had to make a tough call (e.g., unsure whether some text is an author or a folder title, or whether a trailing number is part of the series title). For clear cases, which should be most of them, it must be `null`. Don't add notes just to describe what you did.
+* `notes`: a short remark shown to the user when they confirm the rename, so they know what to double-check. Use it only when you had to make a tough call and another interpretation is plausible (e.g., unsure whether some text is an author or a folder title, or whether a trailing number is part of the series title). For clear cases, which should be most of them, it must be `null`. Don't add notes just to describe what you did.
 
 Here is the list of folder names to process:
