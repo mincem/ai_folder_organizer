@@ -1,6 +1,5 @@
-from lib.gemini_client import configure_gemini, list_generation_models
+from lib.gemini_client import create_gemini_client, list_generation_models
 
 if __name__ == '__main__':
-    configure_gemini()
-    for name in list_generation_models():
+    for name in list_generation_models(create_gemini_client()):
         print(name)
