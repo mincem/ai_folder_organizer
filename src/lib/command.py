@@ -7,32 +7,61 @@ from collections import Counter
 from .ai_client import AIError
 from .ai_service import AIService
 from .logger import Logger
+from .metadata_cache import MetadataCache
+from .series_metadata import DEMOGRAPHICS, GENRES, SERIES_FIELDS, clean_series_item
 
 REMOVED_CHARS = '<>"/\\|?*'
 
+NOTES_FIELD = {
+    "type": ["string", "null"],
+    "description": "Short remark for the user about what to double-check, only for tough calls. Null otherwise.",
+}
+
 RESPONSE_SCHEMA = {
-    "type": "array",
-    "items": {
-        "type": "object",
-        "properties": {
-            "original": {"type": "string"},
-            "series": {"type": "string"},
-            "volume": {"type": ["integer", "null"]},
-            "title": {"type": ["string", "null"]},
-            "notes": {"type": ["string", "null"]},
+    "type": "object",
+    "properties": {
+        "entries": {
+            "type": "array",
+            "description": "One entry per folder name, in the same order as the input.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "original": {"type": "string", "description": "The folder name exactly as given, unchanged."},
+                    "series": {"type": "string", "description": "The series title."},
+                    "volume": {"type": ["integer", "null"], "description": "The volume number, or null if none."},
+                    "title": {"type": ["string", "null"], "description": "The folder title, or null if none."},
+                    "notes": NOTES_FIELD,
+                },
+                "required": ["original", "series", "volume", "title", "notes"],
+            },
         },
-        "required": ["original", "series", "volume", "title", "notes"],
+        "series": {
+            "type": "array",
+            "description": "One item per series in the entries.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "series": {"type": "string", "description": "The series title, exactly as in the entries."},
+                    **SERIES_FIELDS,
+                    "notes": NOTES_FIELD,
+                },
+                "required": ["series", *SERIES_FIELDS, "notes"],
+            },
+        },
     },
+    "required": ["entries", "series"],
 }
 
 
 class Command:
-    def __init__(self, root_folder: str):
+    def __init__(self, root_folder: str, country: str = None):
         if not os.path.isdir(root_folder):
             raise ValueError(f"The provided path is not a valid directory: {root_folder}")
         self.root_folder = root_folder
+        self.country = country
         print(f"Command initialized for folder: {self.root_folder}")
 
+        self.metadata_cache = MetadataCache(root_folder)
         self.ai_service = AIService()
         self.logger = Logger()
 
@@ -54,7 +83,7 @@ class Command:
             return
 
         try:
-            entries = self.get_entries(folders)
+            entries, metadata = self.get_entries(folders)
         except AIError as e:
             print(f"Error getting a response from the AI: {e}")
             return
@@ -62,12 +91,12 @@ class Command:
             print(f"Error parsing AI response: {e}")
             return
 
-        approved = self.confirm_renames(entries, self.drop_conflicts(entries))
+        approved = self.confirm_renames(entries, self.drop_conflicts(entries), metadata)
 
         print()
         for entry in approved:
             self.rename_folder(entry['original'], entry['new_name'])
-        self.logger.print_completion_status()
+        self.logger.print_completion_status(self.metadata_cache.path)
 
     def rename_folder(self, current_name: str, new_name: str):
         original_path = os.path.join(self.root_folder, current_name)
@@ -84,7 +113,7 @@ class Command:
         print(f"Renamed: '{current_name}' -> '{new_name}'")
         self.logger.increment_successful_renames()
 
-    def confirm_renames(self, entries: list[dict], renamable: list[dict]) -> list[dict]:
+    def confirm_renames(self, entries: list[dict], renamable: list[dict], metadata: dict[str, dict]) -> list[dict]:
         to_rename = {entry['original'] for entry in renamable if entry['new_name'] != entry['original']}
         unchanged = len(renamable) - len(to_rename)
         if unchanged:
@@ -92,22 +121,35 @@ class Command:
 
         # Group all entries, not only the renamable ones, so warnings consider the whole series
         groups = self.group_by_series(entries)
+        cached = [series for series in groups if self.is_cached(series)]
+        if cached:
+            print(f"{len(cached)} series already have saved metadata, keeping it.")
+
         approved = []
         for series, group in groups.items():
             pending = [entry for entry in group if entry['original'] in to_rename]
+            new_metadata = None if series in cached else metadata.get(series)
             if not pending:
+                if new_metadata and self.confirm_metadata(series, new_metadata):
+                    self.save_metadata(series, new_metadata)
                 continue
             warnings = self.series_warnings(series, group, list(groups))
             if len(pending) == 1:
-                approved += self.confirm_each(pending, warnings)
+                confirmed = self.confirm_each(pending, warnings, new_metadata)
             else:
-                approved += self.confirm_series(series, pending, warnings)
+                confirmed = self.confirm_series(series, pending, warnings, new_metadata)
+            # A single yes/no covers both the renames and the metadata
+            if confirmed and new_metadata:
+                self.save_metadata(series, new_metadata)
+            approved += confirmed
         return approved
 
-    def confirm_series(self, series: str, entries: list[dict], warnings: list[str]) -> list[dict]:
+    def confirm_series(self, series: str, entries: list[dict], warnings: list[str],
+                       metadata: dict = None) -> list[dict]:
         print(f"\n{series}: {len(entries)} folders")
         for entry in entries:
             self.print_entry(entry)
+        self.print_metadata(series, metadata)
         self.print_warnings(warnings)
 
         while True:
@@ -120,11 +162,12 @@ class Command:
                 print(f"Not renamed: {series}")
                 return []
 
-    def confirm_each(self, entries: list[dict], warnings: list[str]) -> list[dict]:
+    def confirm_each(self, entries: list[dict], warnings: list[str], metadata: dict = None) -> list[dict]:
         approved = []
         for entry in entries:
             print()
             self.print_entry(entry)
+            self.print_metadata(entry['series'], metadata)
             self.print_warnings(warnings)
             response = input("Rename? [Y/n]: ").strip().lower()
             if response in ('', 'y', 'yes'):
@@ -133,6 +176,27 @@ class Command:
                 print(f"Not renamed: '{entry['original']}'")
         return approved
 
+    def confirm_metadata(self, series: str, metadata: dict) -> bool:
+        print(f"\n{series}: folders already have the right name")
+        self.print_metadata(series, metadata)
+        response = input("Save metadata? [Y/n]: ").strip().lower()
+        if response in ('', 'y', 'yes'):
+            return True
+        print(f"Metadata not saved: {series}")
+        return False
+
+    def is_cached(self, series: str) -> bool:
+        cached = self.metadata_cache.get(series)
+        return cached is not None and self.same_country(cached.get('country'), self.country)
+
+    @staticmethod
+    def same_country(first: str | None, second: str | None) -> bool:
+        return (first or '').strip().casefold() == (second or '').strip().casefold()
+
+    def save_metadata(self, series: str, metadata: dict):
+        self.metadata_cache.set(series, {'country': self.country, **metadata})
+        self.logger.increment_saved_metadata()
+
     @staticmethod
     def print_entry(entry: dict):
         print(f"  '{entry['original']}' -> '{entry['new_name']}'")
@@ -140,6 +204,18 @@ class Command:
             print(f"      changed: {'; '.join(entry['changes'])}")
         if entry.get('notes'):
             print(f"      note: {entry['notes']}")
+
+    def print_metadata(self, series: str, metadata: dict | None):
+        if not metadata:
+            return
+        print(f"  metadata{f' ({self.country})' if self.country else ''}:")
+        for name in SERIES_FIELDS:
+            print(f"      {name}: {metadata.get(name) or '-'}")
+        if metadata.get('notes'):
+            print(f"      note: {metadata['notes']}")
+        cached = self.metadata_cache.get(series)
+        if cached is not None:
+            print(f"      replaces the saved metadata for country: {cached.get('country') or 'none'}")
 
     @staticmethod
     def print_warnings(warnings: list[str]):
@@ -183,8 +259,8 @@ class Command:
         without_accents = ''.join(c for c in unicodedata.normalize('NFKD', text) if not unicodedata.combining(c))
         return re.sub(r'\W', '', without_accents.casefold())
 
-    def get_entries(self, folders: list[str]) -> list[dict]:
-        prompt = self.get_prompt("\n".join(folders))
+    def get_entries(self, folders: list[str]) -> tuple[list[dict], dict[str, dict]]:
+        prompt = self.get_prompt(folders, self.country)
 
         response = self.ai_service.ask(prompt, RESPONSE_SCHEMA)
 
@@ -192,12 +268,14 @@ class Command:
         print(response)
         print("-------------------------\n")
 
-        entries = self.validate_entries(self.parse_entries_response(response), folders)
+        parsed = self.parse_response(response)
+        entries = self.validate_entries(parsed.get('entries'), folders)
+        metadata = self.validate_series(parsed.get('series'), entries)
         for entry in entries:
             entry['new_name'] = self.build_new_name(entry)
             changes = self.describe_sanitize(entry['series']) + self.describe_sanitize(entry.get('title') or '')
             entry['changes'] = list(dict.fromkeys(changes))
-        return entries
+        return entries, metadata
 
     @staticmethod
     def validate_entries(entries, folders: list[str]) -> list[dict]:
@@ -222,6 +300,29 @@ class Command:
                 print(f"Warning: AI returned nothing for '{folder}', skipping.")
         return valid
 
+    @staticmethod
+    def validate_series(items, entries: list[dict]) -> dict[str, dict]:
+        """Returns the metadata keyed by the series title used in the entries."""
+        if not isinstance(items, list):
+            print("Warning: AI returned no series metadata.")
+            return {}
+
+        # Match loosely, in case the AI spelled the title slightly differently than in the entries
+        titles = {Command.normalize(entry['series']): entry['series'] for entry in entries}
+        metadata = {}
+        for item in items:
+            name = item.get('series') if isinstance(item, dict) else None
+            series = titles.get(Command.normalize(name)) if isinstance(name, str) else None
+            if series is None or series in metadata:
+                print(f"Warning: AI returned metadata for an unknown or repeated series '{name}', ignoring it.")
+                continue
+            metadata[series] = clean_series_item({**item, 'series': series})
+
+        for series in dict.fromkeys(entry['series'] for entry in entries):
+            if series not in metadata:
+                print(f"Warning: AI returned no metadata for '{series}'.")
+        return metadata
+
     def drop_conflicts(self, entries: list[dict]) -> list[dict]:
         # Windows names are case-insensitive, so compare them casefolded
         targets = Counter(entry['new_name'].casefold() for entry in entries
@@ -242,15 +343,35 @@ class Command:
         return valid
 
     @staticmethod
-    def get_prompt(folder_list_str):
+    def get_prompt(folders: list[str], country: str = None) -> str:
         prompt_file_path = os.path.join(os.path.dirname(__file__), 'prompt.md')
         with open(prompt_file_path, 'r', encoding='utf-8') as f:
             prompt = f.read()
-        return prompt + "\n\n" + folder_list_str
+
+        if country:
+            country_rule = (f"Publisher and imprint depend on the edition, which is published in {country}. "
+                            "Give the ones of that country's edition, not the original ones. If you can't find "
+                            "that edition, use null for just these two and say so in notes.")
+        else:
+            country_rule = "Publisher and imprint are the original ones."
+
+        # Plain replacements, so other braces in the prompt don't need escaping
+        replacements = {
+            '{country}': country_rule,
+            '{genres}': ', '.join(GENRES),
+            '{demographics}': ', '.join(DEMOGRAPHICS),
+            '{folders}': '\n'.join(folders),
+        }
+        for placeholder, value in replacements.items():
+            prompt = prompt.replace(placeholder, value)
+        return prompt
 
     @staticmethod
-    def parse_entries_response(response: str) -> list[dict]:
-        return json.loads(response)
+    def parse_response(response: str) -> dict:
+        parsed = json.loads(response)
+        if not isinstance(parsed, dict):
+            raise ValueError("Expected a JSON object with entries and series")
+        return parsed
 
     @staticmethod
     def build_new_name(entry: dict) -> str:
