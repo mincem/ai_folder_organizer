@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import time
 import unicodedata
 from collections import Counter
 
@@ -63,14 +64,12 @@ class Command:
             raise ValueError(f"The provided path is not a valid directory: {root_folder}")
         self.root_folder = root_folder
         self.country = country
-        print(f"Command initialized for folder: {self.root_folder}")
 
         self.metadata_cache = MetadataCache(root_folder)
         self.ai_service = AIService()
         self.logger = Logger()
 
     def execute(self):
-        print(f"\nExecuting command on: {self.root_folder}")
         self.rename_folders()
 
     def rename_folders(self):
@@ -266,12 +265,7 @@ class Command:
 
     def get_entries(self, folders: list[str]) -> tuple[list[dict], dict[str, dict]]:
         prompt = self.get_prompt(folders, self.country)
-
-        response = self.ai_service.ask(prompt, RESPONSE_SCHEMA)
-
-        print("\n--- AI Response ---")
-        print(response)
-        print("-------------------------\n")
+        response = self.ask_ai(prompt, len(folders))
 
         parsed = self.parse_response(response)
         entries = self.validate_entries(parsed.get('entries'), folders)
@@ -283,7 +277,36 @@ class Command:
             entry['new_name'] = self.build_new_name(entry)
             changes = self.describe_sanitize(entry['series']) + self.describe_sanitize(entry.get('title') or '')
             entry['changes'] = list(dict.fromkeys(changes))
+        print(f"  {len(entries)} entries, {len(metadata)} series, language: {language_iso or '-'}")
         return entries, metadata
+
+    def ask_ai(self, prompt: str, folder_count: int) -> str:
+        model = self.ai_service.model_name.removeprefix('models/')
+        if self.ai_service.is_cached(prompt):
+            print(f"Using cached response for {folder_count} folders (no request sent)")
+        else:
+            # flush, so the line shows up while waiting for the response
+            print(f"Asking {model} about {folder_count} folders...", end='', flush=True)
+
+        start = time.monotonic()
+        try:
+            response = self.ai_service.ask(prompt, RESPONSE_SCHEMA)
+        except AIError:
+            if not self.ai_service.is_cached(prompt):
+                print(" failed")
+            raise
+        seconds = time.monotonic() - start
+
+        if not response.cached:
+            tokens = f", {response.tokens / 1000:.1f}k tokens" if response.tokens else ''
+            print(f" done in {seconds:.1f}s{tokens}")
+        if response.problem:
+            print(f"  Warning: {response.problem}")
+        # Saved before parsing, so the log is there when the response turns out to be wrong
+        log_path = self.logger.save_ai_log(prompt, response, model, seconds, self.root_folder, self.country)
+        if log_path:
+            print(f"  Prompt and response saved to {log_path}")
+        return response.text
 
     @staticmethod
     def validate_entries(entries, folders: list[str]) -> list[dict]:
