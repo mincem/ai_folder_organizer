@@ -125,9 +125,10 @@ class Command:
 
     def confirm_renames(self, entries: list[dict], renamable: list[dict], metadata: dict[str, dict]) -> list[dict]:
         to_rename = {entry['original'] for entry in renamable if entry['new_name'] != entry['original']}
-        unchanged = len(renamable) - len(to_rename)
+        # Folders dropped for a conflict are in neither set
+        unchanged = {entry['original'] for entry in renamable if entry['new_name'] == entry['original']}
         if unchanged:
-            print(f"\n{unchanged} folders already have the right name.")
+            print(f"\n{len(unchanged)} folders already have the right name.")
 
         # Group all entries, not only the renamable ones, so warnings consider the whole series
         groups = self.group_by_series(entries)
@@ -140,7 +141,9 @@ class Command:
             pending = [entry for entry in group if entry['original'] in to_rename]
             new_metadata = None if series in cached else metadata.get(series)
             if not pending:
-                if new_metadata and self.confirm_metadata(series, new_metadata):
+                # Only offered when some folder is already right, not when all were skipped for conflicts
+                has_unchanged = any(entry['original'] in unchanged for entry in group)
+                if new_metadata and has_unchanged and self.confirm_metadata(series, new_metadata):
                     self.save_metadata(series, new_metadata)
                 continue
             warnings = self.series_warnings(series, group, list(groups))
