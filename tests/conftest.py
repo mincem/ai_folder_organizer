@@ -3,8 +3,10 @@ import json
 import pytest
 
 from lib.ai_client import AIClient, AIResponse
+from lib.ai_request import AIRequest
 from lib.ai_service import AIService
 from lib.command import Command
+from lib.confirmation import Confirmer
 from lib.logger import Logger
 from lib.metadata_cache import MetadataCache
 
@@ -38,13 +40,25 @@ def comics_dir(tmp_path):
 
 
 @pytest.fixture
-def make_command(comics_dir, tmp_path):
+def make_ai_request(tmp_path):
+    """Builds an AIRequest that talks to a FakeAIClient with the given response. The fake is in .fake_client."""
+    def make(response: dict | str | Exception = None, cached=False):
+        client = FakeAIClient(response, cached)
+        ai_request = AIRequest(AIService(client), Logger(log_dir=str(tmp_path / "logs")))
+        ai_request.fake_client = client
+        return ai_request
+    return make
+
+
+@pytest.fixture
+def make_command(comics_dir, make_ai_request):
     """Builds a Command over comics_dir that talks to a FakeAIClient with the given response."""
     def make(response: dict | str | Exception = None, country=None, cached=False):
-        client = FakeAIClient(response, cached)
-        command = Command(str(comics_dir), country, AIService(client), MetadataCache(str(comics_dir)),
-                          Logger(log_dir=str(tmp_path / "logs")))
-        command.fake_client = client
+        ai_request = make_ai_request(response, cached)
+        metadata_cache = MetadataCache(str(comics_dir))
+        command = Command(str(comics_dir), country, ai_request, Confirmer(metadata_cache, country),
+                          metadata_cache, ai_request.logger)
+        command.fake_client = ai_request.fake_client
         return command
     return make
 
