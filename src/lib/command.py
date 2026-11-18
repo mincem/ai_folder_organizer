@@ -8,7 +8,7 @@ from .ai_client import AIError
 from .ai_service import AIService
 from .logger import Logger
 from .metadata_cache import MetadataCache
-from .series_metadata import DEMOGRAPHICS, GENRES, SERIES_FIELDS, clean_series_item
+from .series_metadata import DEMOGRAPHICS, GENRES, SERIES_FIELDS, clean_language, clean_series_item
 
 REMOVED_CHARS = '<>"/\\|?*'
 
@@ -48,8 +48,12 @@ RESPONSE_SCHEMA = {
                 "required": ["series", *SERIES_FIELDS, "notes"],
             },
         },
+        "language_iso": {
+            "type": ["string", "null"],
+            "description": "ISO 639-1 code of the editions' language (e.g. \"es\"), as described in the instructions.",
+        },
     },
-    "required": ["entries", "series"],
+    "required": ["entries", "series", "language_iso"],
 }
 
 
@@ -208,7 +212,8 @@ class Command:
     def print_metadata(self, series: str, metadata: dict | None):
         if not metadata:
             return
-        print(f"  metadata{f' ({self.country})' if self.country else ''}:")
+        edition = ', '.join(filter(None, [self.country, metadata.get('language_iso')]))
+        print(f"  metadata{f' ({edition})' if edition else ''}:")
         for name in SERIES_FIELDS:
             print(f"      {name}: {metadata.get(name) or '-'}")
         if metadata.get('notes'):
@@ -271,6 +276,9 @@ class Command:
         parsed = self.parse_response(response)
         entries = self.validate_entries(parsed.get('entries'), folders)
         metadata = self.validate_series(parsed.get('series'), entries)
+        # The language is the same for the whole run, so it comes once and is copied to each series
+        language_iso = clean_language(parsed.get('language_iso'))
+        metadata = {series: {'language_iso': language_iso, **item} for series, item in metadata.items()}
         for entry in entries:
             entry['new_name'] = self.build_new_name(entry)
             changes = self.describe_sanitize(entry['series']) + self.describe_sanitize(entry.get('title') or '')
@@ -351,9 +359,10 @@ class Command:
         if country:
             country_rule = (f"Publisher and imprint depend on the edition, which is published in {country}. "
                             "Give the ones of that country's edition, not the original ones. If you can't find "
-                            "that edition, use null for just these two and say so in notes.")
+                            "that edition, use null for just these two and say so in notes. For `language_iso`, "
+                            "give the ISO 639-1 code of that country's main language (e.g. Argentina -> \"es\").")
         else:
-            country_rule = "Publisher and imprint are the original ones."
+            country_rule = "Publisher and imprint are the original ones. `language_iso` is null."
 
         # Plain replacements, so other braces in the prompt don't need escaping
         replacements = {

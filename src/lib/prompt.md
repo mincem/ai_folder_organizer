@@ -26,6 +26,8 @@ Give one `series` item per series, not per folder, with the series title exactly
 
 Both entries and series items have `notes`: a short remark shown to the user, so they know what to double-check. Use it only when you made a tough call and another reading is plausible (e.g. unsure whether some text is an author or a folder title, or a publisher you couldn't confirm). For clear cases, which should be most of them, it must be null. Don't add notes just to describe what you did.
 
+For a series item where writer, penciller or genre is null, the note must say which case it is: you don't know the series at all, or you know the work but not the local edition. If a genre comes only from words in the title, say so.
+
 ## Examples
 
 - `Call Of The Night 11-Kotoyama [asdfg]` -> series "Call of the Night", volume 11, no title. "Kotoyama" is the author, "[asdfg]" a release tag.

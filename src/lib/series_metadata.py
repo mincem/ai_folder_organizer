@@ -1,3 +1,5 @@
+import re
+
 GENRES = [
     # AniList
     "Action", "Adventure", "Comedy", "Drama", "Ecchi", "Fantasy", "Horror", "Mahou Shoujo", "Mecha", "Music",
@@ -43,3 +45,14 @@ def clean_series_item(item: dict) -> dict:
     notes = item.get('notes')
     cleaned["notes"] = (notes.strip() or None) if isinstance(notes, str) else None
     return cleaned
+
+
+def clean_language(language) -> str | None:
+    """Returns a lowercase ISO 639-1 code, or None if there's none or it isn't valid."""
+    if language is None:
+        return None
+    code = language.strip().lower() if isinstance(language, str) else None
+    if not code or not re.fullmatch(r'[a-z]{2}', code):
+        print(f"Warning: AI returned an invalid language code {language!r}, ignoring it.")
+        return None
+    return code
