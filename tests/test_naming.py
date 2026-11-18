@@ -39,7 +39,7 @@ def test_describe_sanitize_clean_text_has_no_changes():
     ({"series": "Some: Series", "volume": 1, "title": "Part: One?"}, "Some - Series v01 [Part - One]"),
 ])
 def test_build_new_name(entry, expected):
-    assert build_new_name(entry) == expected
+    assert build_new_name(**entry) == expected
 
 
 def test_normalize_ignores_case_accents_and_punctuation():

@@ -2,22 +2,20 @@ import sys
 
 import pytest
 
+from lib.entry import Entry
 from lib.planning import drop_conflicts
-
-
-def entry(original, new_name):
-    return {"original": original, "new_name": new_name}
 
 
 # drop_conflicts
 
 def test_drop_conflicts_keeps_unchanged_and_free_targets(comics_dir):
-    entries = [entry("Some Series v01", "Some Series v01"), entry("some series 2", "Some Series v02")]
+    entries = [Entry("Some Series v01", "Some Series", 1), Entry("some series 2", "Some Series", 2)]
     assert drop_conflicts(entries, str(comics_dir)) == entries
 
 
 def test_drop_conflicts_skips_all_entries_with_the_same_target(comics_dir, capsys):
-    entries = [entry("a", "Some Series v01"), entry("b", "some series V01"), entry("c", "Some Series v02")]
+    # "some series v01" and "Some Series v01" are the same name on Windows
+    entries = [Entry("a", "Some Series", 1), Entry("b", "some series", 1), Entry("c", "Some Series", 2)]
     assert drop_conflicts(entries, str(comics_dir)) == [entries[2]]
     output = capsys.readouterr().out
     assert "skipping 'a'" in output and "skipping 'b'" in output
@@ -25,7 +23,7 @@ def test_drop_conflicts_skips_all_entries_with_the_same_target(comics_dir, capsy
 
 def test_drop_conflicts_skips_existing_target(comics_dir, capsys):
     (comics_dir / "Some Series v01").mkdir()
-    entries = [entry("some series 1", "Some Series v01")]
+    entries = [Entry("some series 1", "Some Series", 1)]
     assert drop_conflicts(entries, str(comics_dir)) == []
     assert "'Some Series v01' already exists, skipping 'some series 1'" in capsys.readouterr().out
 
@@ -33,7 +31,7 @@ def test_drop_conflicts_skips_existing_target(comics_dir, capsys):
 def test_drop_conflicts_allows_case_only_change(comics_dir):
     # On Windows the target "exists", because it's the same folder
     (comics_dir / "some series v01").mkdir()
-    entries = [entry("some series v01", "Some Series v01")]
+    entries = [Entry("some series v01", "Some Series", 1)]
     assert drop_conflicts(entries, str(comics_dir)) == entries
 
 

@@ -5,6 +5,7 @@ import time
 
 from .ai_client import AIError
 from .ai_service import AIService
+from .entry import Entry
 from .logger import Logger
 from .naming import normalize, sanitize
 from .series_metadata import DEMOGRAPHICS, GENRES, SERIES_FIELDS, clean_language, clean_series_item
@@ -60,7 +61,7 @@ class AIRequest:
         self.logger = logger
 
     def get_entries(self, folders: list[str], root_folder: str,
-                    country: str | None) -> tuple[list[dict], dict[str, dict]]:
+                    country: str | None) -> tuple[list[Entry], dict[str, dict]]:
         """Returns the valid entries and the series metadata keyed by series title.
 
         Raises AIError if the request fails, and json.JSONDecodeError or ValueError if the response is unusable."""
@@ -137,7 +138,8 @@ def parse_response(response: str) -> dict:
     return parsed
 
 
-def validate_entries(entries, folders: list[str]) -> list[dict]:
+def validate_entries(entries, folders: list[str]) -> list[Entry]:
+    """Turns the AI's entries into Entry objects, skipping the unusable ones with a warning."""
     if not isinstance(entries, list):
         raise ValueError("Expected a JSON array of entries")
 
@@ -149,10 +151,16 @@ def validate_entries(entries, folders: list[str]) -> list[dict]:
             print(f"Warning: AI returned an unknown or repeated folder '{original}', ignoring it.")
             continue
         pending.remove(original)
-        if not entry.get('series') or not sanitize(entry['series']):
+        series, volume = entry.get('series'), entry.get('volume')
+        if not isinstance(series, str) or not sanitize(series):
             print(f"Warning: AI returned no series title for '{original}', skipping.")
             continue
-        valid.append(entry)
+        # bool is a subclass of int, but True isn't a volume
+        if volume is not None and (not isinstance(volume, int) or isinstance(volume, bool)):
+            print(f"Warning: AI returned an invalid volume {volume!r} for '{original}', skipping.")
+            continue
+        valid.append(Entry(original, series, volume, optional_text(entry.get('title')),
+                           optional_text(entry.get('notes'))))
 
     for folder in folders:
         if folder in pending:
@@ -160,14 +168,14 @@ def validate_entries(entries, folders: list[str]) -> list[dict]:
     return valid
 
 
-def validate_series(items, entries: list[dict]) -> dict[str, dict]:
+def validate_series(items, entries: list[Entry]) -> dict[str, dict]:
     """Returns the metadata keyed by the series title used in the entries."""
     if not isinstance(items, list):
         print("Warning: AI returned no series metadata.")
         return {}
 
     # Match loosely, in case the AI spelled the title slightly differently than in the entries
-    titles = {normalize(entry['series']): entry['series'] for entry in entries}
+    titles = {normalize(entry.series): entry.series for entry in entries}
     metadata = {}
     for item in items:
         name = item.get('series') if isinstance(item, dict) else None
@@ -177,7 +185,12 @@ def validate_series(items, entries: list[dict]) -> dict[str, dict]:
             continue
         metadata[series] = clean_series_item({**item, 'series': series})
 
-    for series in dict.fromkeys(entry['series'] for entry in entries):
+    for series in dict.fromkeys(entry.series for entry in entries):
         if series not in metadata:
             print(f"Warning: AI returned no metadata for '{series}'.")
     return metadata
+
+
+def optional_text(value) -> str | None:
+    """The stripped text, or None if it's empty or not a string."""
+    return (value.strip() or None) if isinstance(value, str) else None

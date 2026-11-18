@@ -1,4 +1,5 @@
 """Asking the user which renames and series metadata to apply."""
+from .entry import Entry
 from .metadata_cache import MetadataCache
 from .planning import group_by_series, series_warnings
 from .series_metadata import SERIES_FIELDS
@@ -11,12 +12,12 @@ class Confirmer:
         self.metadata_cache = metadata_cache
         self.country = country
 
-    def confirm(self, entries: list[dict], renamable: list[dict],
-                metadata: dict[str, dict]) -> tuple[list[dict], dict[str, dict]]:
+    def confirm(self, entries: list[Entry], renamable: list[Entry],
+                metadata: dict[str, dict]) -> tuple[list[Entry], dict[str, dict]]:
         """Returns the accepted entries to rename and the accepted metadata to save, keyed by series."""
-        to_rename = {entry['original'] for entry in renamable if entry['new_name'] != entry['original']}
+        to_rename = {entry.original for entry in renamable if entry.new_name != entry.original}
         # Folders dropped for a conflict are in neither set
-        unchanged = {entry['original'] for entry in renamable if entry['new_name'] == entry['original']}
+        unchanged = {entry.original for entry in renamable if entry.new_name == entry.original}
         if unchanged:
             print(f"\n{len(unchanged)} folders already have the right name.")
 
@@ -29,11 +30,11 @@ class Confirmer:
         approved = []
         metadata_to_save = {}
         for series, group in groups.items():
-            pending = [entry for entry in group if entry['original'] in to_rename]
+            pending = [entry for entry in group if entry.original in to_rename]
             new_metadata = None if series in cached else metadata.get(series)
             if not pending:
                 # Only offered when some folder is already right, not when all were skipped for conflicts
-                has_unchanged = any(entry['original'] in unchanged for entry in group)
+                has_unchanged = any(entry.original in unchanged for entry in group)
                 if new_metadata and has_unchanged and self.confirm_metadata(series, new_metadata):
                     metadata_to_save[series] = new_metadata
                 continue
@@ -48,8 +49,8 @@ class Confirmer:
             approved += confirmed
         return approved, metadata_to_save
 
-    def confirm_series(self, series: str, entries: list[dict], warnings: list[str],
-                       metadata: dict = None) -> list[dict]:
+    def confirm_series(self, series: str, entries: list[Entry], warnings: list[str],
+                       metadata: dict = None) -> list[Entry]:
         print(f"\n{series}: {len(entries)} folders")
         for entry in entries:
             self.print_entry(entry)
@@ -66,18 +67,18 @@ class Confirmer:
                 print(f"Not renamed: {series}")
                 return []
 
-    def confirm_each(self, entries: list[dict], warnings: list[str], metadata: dict = None) -> list[dict]:
+    def confirm_each(self, entries: list[Entry], warnings: list[str], metadata: dict = None) -> list[Entry]:
         approved = []
         for entry in entries:
             print()
             self.print_entry(entry)
-            self.print_metadata(entry['series'], metadata)
+            self.print_metadata(entry.series, metadata)
             self.print_warnings(warnings)
             response = input("Rename? [Y/n]: ").strip().lower()
             if response in ('', 'y', 'yes'):
                 approved.append(entry)
             else:
-                print(f"Not renamed: '{entry['original']}'")
+                print(f"Not renamed: '{entry.original}'")
         return approved
 
     def confirm_metadata(self, series: str, metadata: dict) -> bool:
@@ -94,12 +95,12 @@ class Confirmer:
         return cached is not None and same_country(cached.get('country'), self.country)
 
     @staticmethod
-    def print_entry(entry: dict):
-        print(f"  '{entry['original']}' -> '{entry['new_name']}'")
-        if entry['changes']:
-            print(f"      changed: {'; '.join(entry['changes'])}")
-        if entry.get('notes'):
-            print(f"      note: {entry['notes']}")
+    def print_entry(entry: Entry):
+        print(f"  '{entry.original}' -> '{entry.new_name}'")
+        if entry.changes:
+            print(f"      changed: {'; '.join(entry.changes)}")
+        if entry.notes:
+            print(f"      note: {entry.notes}")
 
     def print_metadata(self, series: str, metadata: dict | None):
         if not metadata:

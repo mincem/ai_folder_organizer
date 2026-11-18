@@ -6,7 +6,7 @@ from .ai_request import AIRequest
 from .confirmation import Confirmer
 from .logger import Logger
 from .metadata_cache import MetadataCache
-from .planning import add_new_names, drop_conflicts
+from .planning import drop_conflicts
 
 
 class Command:
@@ -51,7 +51,6 @@ class Command:
             print(f"Error parsing AI response: {e}")
             return
 
-        add_new_names(entries)
         renamable = drop_conflicts(entries, self.root_folder)
         approved, metadata_to_save = self.confirmer.confirm(entries, renamable, metadata)
 
@@ -59,7 +58,7 @@ class Command:
             self.save_metadata(series, item)
         print()
         for entry in approved:
-            self.rename_folder(entry['original'], entry['new_name'])
+            self.rename_folder(entry.original, entry.new_name)
         self.logger.print_completion_status(self.metadata_cache.path)
 
     def rename_folder(self, current_name: str, new_name: str):

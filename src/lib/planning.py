@@ -1,27 +1,20 @@
-"""Deciding what to rename: new names, skipping conflicts, grouping by series and warning about gaps."""
+"""Deciding what to rename: skipping conflicts, grouping by series and warning about gaps."""
 import os
 from collections import Counter
 
-from .naming import build_new_name, describe_sanitize, normalize
+from .entry import Entry
+from .naming import normalize
 
 
-def add_new_names(entries: list[dict]):
-    """Sets each entry's new folder name, and the changes made to fit Windows names, to show the user."""
-    for entry in entries:
-        entry['new_name'] = build_new_name(entry)
-        changes = describe_sanitize(entry['series']) + describe_sanitize(entry.get('title') or '')
-        entry['changes'] = list(dict.fromkeys(changes))
-
-
-def drop_conflicts(entries: list[dict], root_folder: str) -> list[dict]:
+def drop_conflicts(entries: list[Entry], root_folder: str) -> list[Entry]:
     """Returns the entries that can be renamed, warning about the ones skipped."""
     # Windows names are case-insensitive, so compare them casefolded
-    targets = Counter(entry['new_name'].casefold() for entry in entries
-                      if entry['new_name'] != entry['original'])
+    targets = Counter(entry.new_name.casefold() for entry in entries
+                      if entry.new_name != entry.original)
 
     valid = []
     for entry in entries:
-        original, new_name = entry['original'], entry['new_name']
+        original, new_name = entry.original, entry.new_name
         is_case_only_change = original.casefold() == new_name.casefold()
         if original == new_name:
             valid.append(entry)
@@ -34,18 +27,18 @@ def drop_conflicts(entries: list[dict], root_folder: str) -> list[dict]:
     return valid
 
 
-def group_by_series(entries: list[dict]) -> dict[str, list[dict]]:
+def group_by_series(entries: list[Entry]) -> dict[str, list[Entry]]:
     groups = {}
     for entry in entries:
-        groups.setdefault(entry['series'], []).append(entry)
+        groups.setdefault(entry.series, []).append(entry)
     for group in groups.values():
-        group.sort(key=lambda e: (e['volume'] is None, e['volume'] or 0, e['original']))
+        group.sort(key=lambda e: (e.volume is None, e.volume or 0, e.original))
     return groups
 
 
-def series_warnings(series: str, group: list[dict], all_series: list[str]) -> list[str]:
+def series_warnings(series: str, group: list[Entry], all_series: list[str]) -> list[str]:
     warnings = []
-    volumes = [entry['volume'] for entry in group if entry['volume'] is not None]
+    volumes = [entry.volume for entry in group if entry.volume is not None]
 
     repeated = sorted(volume for volume, count in Counter(volumes).items() if count > 1)
     if repeated:

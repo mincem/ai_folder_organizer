@@ -1,4 +1,4 @@
-"""Folder names: building them from an entry, making them valid on Windows, and comparing titles loosely."""
+"""Folder names: building them, making them valid on Windows, and comparing titles loosely."""
 import re
 import unicodedata
 
@@ -6,12 +6,12 @@ import unicodedata
 REMOVED_CHARS = '<>"/\\|?*'
 
 
-def build_new_name(entry: dict) -> str:
-    name = sanitize(entry['series'])
-    if entry.get('volume') is not None:
-        name += f" v{int(entry['volume']):02d}"
-    if entry.get('title'):
-        name += f" [{sanitize(entry['title'])}]"
+def build_new_name(series: str, volume: int | None, title: str | None) -> str:
+    name = sanitize(series)
+    if volume is not None:
+        name += f" v{volume:02d}"
+    if title:
+        name += f" [{sanitize(title)}]"
     return name
 
 

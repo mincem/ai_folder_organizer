@@ -1,20 +1,9 @@
-from lib.planning import add_new_names, group_by_series, series_warnings
+from lib.entry import Entry
+from lib.planning import group_by_series, series_warnings
 
 
 def entry(original, series="Some Series", volume=None):
-    return {"original": original, "series": series, "volume": volume}
-
-
-def test_add_new_names_sets_name_and_changes():
-    entries = [
-        {"original": "a", "series": "Some Series", "volume": 1, "title": None},
-        {"original": "b", "series": "Some: Series", "volume": 2, "title": "Part: Two?"},
-    ]
-    add_new_names(entries)
-    assert [(e["new_name"], e["changes"]) for e in entries] == [
-        ("Some Series v01", []),
-        ("Some - Series v02 [Part - Two]", ["replaced ':' with '-'", "removed '?'"]),
-    ]
+    return Entry(original, series, volume)
 
 
 def test_group_by_series_sorts_by_volume_then_unnumbered_by_name():
@@ -27,7 +16,7 @@ def test_group_by_series_sorts_by_volume_then_unnumbered_by_name():
     ]
     groups = group_by_series(entries)
     assert list(groups) == ["Some Series", "Other Series"]
-    assert [e["original"] for e in groups["Some Series"]] == ["d", "c", "a", "b"]
+    assert [e.original for e in groups["Some Series"]] == ["d", "c", "a", "b"]
 
 
 def test_series_warnings_none_for_complete_series():
