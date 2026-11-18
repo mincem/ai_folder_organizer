@@ -59,15 +59,22 @@ RESPONSE_SCHEMA = {
 
 
 class Command:
-    def __init__(self, root_folder: str, country: str = None):
+    def __init__(
+        self,
+        root_folder: str,
+        country: str | None,
+        ai_service: AIService,
+        metadata_cache: MetadataCache,
+        logger: Logger,
+    ):
         if not os.path.isdir(root_folder):
             raise ValueError(f"The provided path is not a valid directory: {root_folder}")
         self.root_folder = root_folder
         self.country = country
 
-        self.metadata_cache = MetadataCache(root_folder)
-        self.ai_service = AIService()
-        self.logger = Logger()
+        self.ai_service = ai_service
+        self.metadata_cache = metadata_cache
+        self.logger = logger
 
     def execute(self):
         self.rename_folders()

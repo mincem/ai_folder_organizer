@@ -1,0 +1,4 @@
+[tool.pytest.ini_options]
+# Same import root as src/main.py, so tests import `lib.command` like the app does
+pythonpath = ["src"]
+testpaths = ["tests"]
