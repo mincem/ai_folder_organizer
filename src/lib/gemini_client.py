@@ -20,6 +20,20 @@ def list_generation_models(client: genai.Client) -> list[str]:
             if 'generateContent' in (m.supported_actions or [])]
 
 
+def to_ai_error(error: errors.APIError) -> AIError:
+    """Turns an API error into a short message, e.g. "503 UNAVAILABLE: This model is currently experiencing...".
+
+    The SDK reads code, status and message from the error JSON; message can be None (e.g. a non-JSON body),
+    and then the full error is shown instead."""
+    if error.message:
+        message = f"Gemini API error {error.code} {error.status or ''}".rstrip() + f": {error.message}"
+    else:
+        message = f"Gemini API error: {error}"
+    # Too many requests (429) and server errors (5xx) are usually temporary
+    retryable = error.code == 429 or (error.code or 0) >= 500
+    return AIError(message, retryable=retryable)
+
+
 class GeminiClient(AIClient):
     def __init__(self):
         self.cache = AICache()
@@ -51,13 +65,23 @@ class GeminiClient(AIClient):
             if not result.problem:
                 self.cache.set(prompt, result.text)
             return result
-        except errors.ClientError as e:
-            if e.code != 404:
-                raise AIError(f"An error occurred while calling the Gemini API: {e}") from e
-            raise AIError(f"Gemini model '{self.model_name}' was not found. "
-                          f"Set GEMINI_MODEL to one of: {', '.join(list_generation_models(self.client))}") from e
+        except errors.APIError as e:
+            if e.code == 404:
+                raise AIError(f"Gemini model '{self.model_name}' was not found. "
+                              f"Set GEMINI_MODEL to one of: {', '.join(list_generation_models(self.client))}") from e
+            raise to_ai_error(e) from e
         except Exception as e:
             raise AIError(f"An error occurred while calling the Gemini API: {e}") from e
+
+    def available_models(self) -> list[str]:
+        if not self.client:
+            raise AIError("Cannot list Gemini models, the client was not initialized.")
+        try:
+            return list_generation_models(self.client)
+        except errors.APIError as e:
+            raise to_ai_error(e) from e
+        except Exception as e:
+            raise AIError(f"Could not list the Gemini models: {e}") from e
 
     @staticmethod
     def to_ai_response(response: types.GenerateContentResponse) -> AIResponse:

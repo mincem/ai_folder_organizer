@@ -174,6 +174,53 @@ def test_ai_error_changes_nothing(make_command, comics_dir, answers, capsys):
     assert folders(comics_dir) == ["some series 1"]
 
 
+def test_temporary_ai_error_offers_retry_that_can_succeed(make_command, comics_dir, answers):
+    make_folders(comics_dir, "some series 1", "some series 2")
+    prompts = answers("", "")
+    command = make_command([AIError("overloaded", retryable=True), TWO_VOLUMES])
+    command.execute()
+
+    assert questions(prompts) == ["Try again", "Rename all"]
+    assert len(command.fake_client.prompts) == 2
+    assert folders(comics_dir) == ["Some Series v01", "Some Series v02"]
+
+
+def test_declining_retry_changes_nothing(make_command, comics_dir, answers):
+    make_folders(comics_dir, "some series 1")
+    prompts = answers("n")
+    command = make_command([AIError("overloaded", retryable=True)])
+    command.execute()
+
+    assert questions(prompts) == ["Try again"]
+    assert len(command.fake_client.prompts) == 1
+    assert folders(comics_dir) == ["some series 1"]
+
+
+def test_retry_with_other_model_uses_the_chosen_one(make_command, comics_dir, answers, capsys):
+    make_folders(comics_dir, "some series 1", "some series 2")
+    # The list leaves out the current model, so "2" is the third one
+    prompts = answers("o", "9", "2", "")
+    command = make_command([AIError("overloaded", retryable=True), TWO_VOLUMES])
+    command.execute()
+
+    assert questions(prompts) == ["Try again", "Model number (Enter to cancel): ",
+                                  "Model number (Enter to cancel): ", "Rename all"]
+    assert "1. other-model" in capsys.readouterr().out
+    assert command.fake_client.models == ["models/fake-model", "models/third-model"]
+    assert folders(comics_dir) == ["Some Series v01", "Some Series v02"]
+
+
+def test_cancelling_model_choice_asks_retry_again(make_command, comics_dir, answers):
+    make_folders(comics_dir, "some series 1")
+    prompts = answers("o", "", "n")
+    command = make_command([AIError("overloaded", retryable=True)])
+    command.execute()
+
+    assert questions(prompts) == ["Try again", "Model number (Enter to cancel): ", "Try again"]
+    assert command.fake_client.models == ["models/fake-model"]
+    assert folders(comics_dir) == ["some series 1"]
+
+
 def test_invalid_response_changes_nothing(make_command, comics_dir, answers, capsys):
     make_folders(comics_dir, "some series 1")
     answers()

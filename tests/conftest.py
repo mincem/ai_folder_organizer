@@ -12,22 +12,31 @@ from lib.metadata_cache import MetadataCache
 
 
 class FakeAIClient(AIClient):
-    """Returns a canned response (or raises it, if it's an exception) and records the prompts it was asked."""
+    """Returns a canned response (or raises it, if it's an exception) and records the prompts it was asked.
+
+    A list gives one response per call, in order."""
     model_name = "models/fake-model"
 
     def __init__(self, response: dict | str = None, cached: bool = False):
         self.response = response
         self.cached = cached
         self.prompts = []
+        # The model each prompt was asked to
+        self.models = []
+
+    def available_models(self) -> list[str]:
+        return ["models/fake-model", "models/other-model", "models/third-model"]
 
     def is_cached(self, prompt: str) -> bool:
         return self.cached
 
     def ask(self, prompt: str, response_schema: dict = None) -> AIResponse:
         self.prompts.append(prompt)
-        if isinstance(self.response, Exception):
-            raise self.response
-        text = self.response if isinstance(self.response, str) else json.dumps(self.response)
+        self.models.append(self.model_name)
+        response = self.response.pop(0) if isinstance(self.response, list) else self.response
+        if isinstance(response, Exception):
+            raise response
+        text = response if isinstance(response, str) else json.dumps(response)
         return AIResponse(text=text, cached=self.cached)
 
 

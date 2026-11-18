@@ -9,6 +9,7 @@ from .entry import Entry
 from .logger import Logger
 from .naming import normalize, sanitize
 from .series_metadata import DEMOGRAPHICS, GENRES, SERIES_FIELDS, clean_language, clean_series_item
+from .spinner import Spinner
 
 NOTES_FIELD = {
     "type": ["string", "null"],
@@ -66,7 +67,7 @@ class AIRequest:
 
         Raises AIError if the request fails, and json.JSONDecodeError or ValueError if the response is unusable."""
         prompt = get_prompt(folders, country)
-        response = self.ask_ai(prompt, len(folders), root_folder, country)
+        response = self.ask_ai(prompt, root_folder, country)
 
         parsed = parse_response(response)
         entries = validate_entries(parsed.get('entries'), folders)
@@ -77,21 +78,19 @@ class AIRequest:
         print(f"  {len(entries)} entries, {len(metadata)} series, language: {language_iso or '-'}")
         return entries, metadata
 
-    def ask_ai(self, prompt: str, folder_count: int, root_folder: str, country: str | None) -> str:
+    def ask_ai(self, prompt: str, root_folder: str, country: str | None) -> str:
         model = self.ai_service.model_name.removeprefix('models/')
-        if self.ai_service.is_cached(prompt):
-            print(f"Using cached response for {folder_count} folders (no request sent)")
-        else:
-            # flush, so the line shows up while waiting for the response
-            print(f"Asking {model} about {folder_count} folders...", end='', flush=True)
-
         start = time.monotonic()
-        try:
+        if self.ai_service.is_cached(prompt):
+            print("Using cached response (no request sent)")
             response = self.ai_service.ask(prompt, RESPONSE_SCHEMA)
-        except AIError:
-            if not self.ai_service.is_cached(prompt):
+        else:
+            try:
+                with Spinner(f"Asking {model}..."):
+                    response = self.ai_service.ask(prompt, RESPONSE_SCHEMA)
+            except AIError:
                 print(" failed")
-            raise
+                raise
         seconds = time.monotonic() - start
 
         if not response.cached:

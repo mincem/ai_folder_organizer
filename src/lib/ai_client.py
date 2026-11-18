@@ -3,7 +3,10 @@ from dataclasses import dataclass
 
 
 class AIError(Exception):
-    pass
+    def __init__(self, message: str, retryable: bool = False):
+        super().__init__(message)
+        # True when the same request may work later (e.g. the model is overloaded), so it's worth offering a retry
+        self.retryable = retryable
 
 
 @dataclass
@@ -41,3 +44,7 @@ class AIClient(ABC):
     @abstractmethod
     def ask(self, prompt: str, response_schema: dict = None) -> AIResponse:
         pass
+
+    @abstractmethod
+    def available_models(self) -> list[str]:
+        """Names of the models that can be set as model_name. Raises AIError if they can't be listed."""

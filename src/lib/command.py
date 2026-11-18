@@ -3,10 +3,46 @@ import os
 
 from .ai_client import AIError
 from .ai_request import AIRequest
+from .ai_service import AIService
 from .confirmation import Confirmer
+from .entry import Entry
 from .logger import Logger
 from .metadata_cache import MetadataCache
 from .planning import drop_conflicts
+
+
+def ask_retry(ai_service: AIService) -> bool:
+    """Asks whether to try again, optionally with another model. True means retry."""
+    while True:
+        response = input("Try again? [Y]es / [o]ther model / [n]o: ").strip().lower()
+        if response in ('', 'y', 'yes'):
+            return True
+        if response in ('o', 'other') and choose_model(ai_service):
+            return True
+        if response in ('n', 'no'):
+            return False
+
+
+def choose_model(ai_service: AIService) -> bool:
+    """Lets the user switch to another model for the rest of the run. False if they cancel or it can't be listed."""
+    try:
+        models = [m for m in ai_service.available_models() if m != ai_service.model_name]
+    except AIError as e:
+        print(f"Could not list the models: {e}")
+        return False
+    if not models:
+        print("No other models available.")
+        return False
+
+    for number, model in enumerate(models, start=1):
+        print(f"  {number}. {model.removeprefix('models/')}")
+    while True:
+        response = input("Model number (Enter to cancel): ").strip()
+        if not response:
+            return False
+        if response.isdigit() and 1 <= int(response) <= len(models):
+            ai_service.model_name = models[int(response) - 1]
+            return True
 
 
 class Command:
@@ -42,14 +78,10 @@ class Command:
         if not folders:
             return
 
-        try:
-            entries, metadata = self.ai_request.get_entries(folders, self.root_folder, self.country)
-        except AIError as e:
-            print(f"Error getting a response from the AI: {e}")
+        result = self.get_entries(folders)
+        if result is None:
             return
-        except (json.JSONDecodeError, ValueError) as e:
-            print(f"Error parsing AI response: {e}")
-            return
+        entries, metadata = result
 
         renamable = drop_conflicts(entries, self.root_folder)
         approved, metadata_to_save = self.confirmer.confirm(entries, renamable, metadata)
@@ -60,6 +92,19 @@ class Command:
         for entry in approved:
             self.rename_folder(entry.original, entry.new_name)
         self.logger.print_completion_status(self.metadata_cache.path)
+
+    def get_entries(self, folders: list[str]) -> tuple[list[Entry], dict[str, dict]] | None:
+        """Asks the AI, offering to try again on temporary errors. Returns None if there is nothing to rename."""
+        while True:
+            try:
+                return self.ai_request.get_entries(folders, self.root_folder, self.country)
+            except AIError as e:
+                print(f"Error getting a response from the AI: {e}")
+                if not (e.retryable and ask_retry(self.ai_request.ai_service)):
+                    return None
+            except (json.JSONDecodeError, ValueError) as e:
+                print(f"Error parsing AI response: {e}")
+                return None
 
     def rename_folder(self, current_name: str, new_name: str):
         original_path = os.path.join(self.root_folder, current_name)

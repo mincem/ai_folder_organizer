@@ -10,6 +10,13 @@ class AIService:
     def model_name(self) -> str:
         return self.ai_client.model_name
 
+    @model_name.setter
+    def model_name(self, name: str):
+        self.ai_client.model_name = name
+
+    def available_models(self) -> list[str]:
+        return self.ai_client.available_models()
+
     def is_cached(self, prompt: str) -> bool:
         return self.ai_client.is_cached(prompt)
 
